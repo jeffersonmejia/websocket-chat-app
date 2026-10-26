@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f5ff">
+  <meta name="description" content="Chat grupal en tiempo real mediante WebSocket">
+  <title>Chatea · Sala general</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section id="login-view" class="login-card" aria-labelledby="welcome-title">
+      <div class="brand-mark" aria-hidden="true">✳</div>
+      <p class="eyebrow">SALA GENERAL</p>
+      <h1 id="welcome-title">Una conversación<br>para compartir</h1>
+      <p class="muted">Elige cómo quieres aparecer en el chat.</p>
+      <form id="login-form" class="login-form">
+        <label for="name-input">Tu nombre</label>
+        <input id="name-input" name="name" maxlength="24" autocomplete="nickname" placeholder="Por ejemplo, Alex" required>
+        <button class="button primary full" type="submit">Entrar al chat <span aria-hidden="true">→</span></button>
+        <p id="login-error" class="form-error" role="alert"></p>
+      </form>
+      <div class="privacy-note"><span aria-hidden="true">●</span> Tu conversación se comparte con quienes están en línea.</div>
+    </section>
+
+    <section id="chat-view" class="chat-layout" hidden>
+      <aside class="sidebar" aria-label="Sala y participantes">
+        <div class="sidebar-brand"><div class="brand-mark small" aria-hidden="true">✳</div><div><strong>Chatea</strong><small>Conversaciones cercanas</small></div></div>
+        <div class="room-card"><span class="room-icon" aria-hidden="true">#</span><div><strong>Sala general</strong><small>Todos son bienvenidos</small></div><span class="room-dot"></span></div>
+        <div class="people-heading"><span>PERSONAS</span><span id="user-count" class="count-pill">0</span></div>
+        <ul id="user-list" class="user-list" aria-live="polite"></ul>
+        <div class="sidebar-bottom"><div class="profile"><div id="my-avatar" class="avatar">?</div><div class="profile-copy"><strong id="my-name">Tú</strong><small>En esta sala</small></div><button id="presence-button" class="icon-button" type="button" title="Cambiar presencia" aria-label="Cambiar presencia">●</button></div></div>
+      </aside>
+
+      <section class="conversation" aria-label="Conversación de sala general">
+        <header class="chat-header"><div class="header-title"><div class="room-icon large" aria-hidden="true">#</div><div><h2>Sala general</h2><p><span class="connection-dot" id="connection-dot"></span><span id="connection-status" role="status">Desconectado</span><span class="header-separator">·</span><span id="header-count">0 personas</span></p></div></div><button id="search-toggle" class="icon-button search-toggle" type="button" aria-label="Buscar mensajes" title="Buscar mensajes">⌕</button></header>
+        <div id="search-panel" class="search-panel" hidden><label class="sr-only" for="search-input">Buscar en mensajes cargados</label><input id="search-input" type="search" placeholder="Buscar en la conversación…"><button id="clear-search" class="icon-button" type="button" aria-label="Limpiar búsqueda">×</button><small>Busca en los mensajes cargados en esta sesión.</small></div>
+        <div id="pinned-bar" class="pinned-bar" hidden><span aria-hidden="true">⌖</span><div><small>MENSAJE FIJADO</small><p id="pinned-text"></p></div></div>
+        <ol id="messages" class="messages" aria-live="polite" aria-relevant="additions text" aria-label="Mensajes"></ol>
+        <div id="typing-indicator" class="typing-indicator" aria-live="polite"></div>
+        <div id="reply-bar" class="reply-bar" hidden></div>
+        <form id="message-form" class="composer">
+          <label class="sr-only" for="message-input">Escribe un mensaje</label>
+          <textarea id="message-input" rows="1" maxlength="2000" placeholder="Escribe un mensaje…" required></textarea>
+          <div class="composer-bottom"><span>Enter para enviar · Shift + Enter para nueva línea</span><button class="send-button" type="submit" aria-label="Enviar mensaje" title="Enviar">↑</button></div>
+          <p id="message-error" class="form-error" role="alert"></p>
+        </form>
+      </section>
+    </section>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="unread-badge" class="unread-badge" hidden></div>
+  </main>
+</body>
+</html>
