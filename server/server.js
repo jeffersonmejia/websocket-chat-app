@@ -6,6 +6,7 @@ import path from 'node:path';
 import { UserService } from './services/userService.js';
 import { ChatService } from './services/chatService.js';
 import { UploadService, MAX_ATTACHMENT_SIZE } from './services/uploadService.js';
+import { ImageProcessingService } from './services/imageProcessingService.js';
 import { attachConnectionHandlers } from './socket/connectionHandler.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,7 +17,8 @@ export function createChatServer() {
   const users = new UserService();
   const chat = new ChatService();
   const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || path.join(root, '.chat-uploads'));
-  const uploads = new UploadService(uploadDirectory);
+  const imageProcessor = new ImageProcessingService();
+  const uploads = new UploadService(uploadDirectory, imageProcessor);
   app.post('/api/uploads', express.raw({ type: () => true, limit: MAX_ATTACHMENT_SIZE }), async (req, res, next) => {
     try {
       const user = users.getById(req.get('X-Chat-User-Id'));
@@ -61,18 +63,21 @@ export function createChatServer() {
     if (request.url !== '/ws') { socket.destroy(); return; }
     wsServer.handleUpgrade(request, socket, head, (ws) => wsServer.emit('connection', ws, request));
   });
-  return { app, httpServer, wsServer, users, chat, uploads };
+  return { app, httpServer, wsServer, users, chat, uploads, imageProcessor };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 3000);
-  const { httpServer, wsServer } = createChatServer();
+  const { httpServer, wsServer, imageProcessor } = createChatServer();
   httpServer.listen(port, '0.0.0.0', () => console.log(`Chat listo en http://localhost:${port}`));
   const shutdown = () => {
     wsServer.clients.forEach((client) => client.close(1001, 'Servidor detenido'));
     wsServer.close();
-    httpServer.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 5000).unref();
+    const timeout = setTimeout(() => process.exit(1), 5000).unref();
+    Promise.all([
+      imageProcessor.close().catch((error) => console.error('Error cerrando workers de imágenes:', error)),
+      new Promise((resolve) => httpServer.close(resolve)),
+    ]).then(() => { clearTimeout(timeout); process.exit(0); });
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

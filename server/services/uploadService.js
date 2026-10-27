@@ -21,7 +21,7 @@ function safeName(value = '') {
 
 export class UploadService {
   #records = new Map();
-  constructor(directory) { this.directory = directory; }
+  constructor(directory, imageProcessor = null) { this.directory = directory; this.imageProcessor = imageProcessor; }
   async init() { this.initializing = mkdir(this.directory, { recursive: true }); await this.initializing; }
   async create(ownerId, name, type, buffer) {
     await (this.initializing || this.init());
@@ -30,9 +30,10 @@ export class UploadService {
     const id = randomUUID();
     const normalizedType = String(type || 'application/octet-stream').split(';')[0].trim().toLowerCase();
     if (!INLINE_TYPES.has(normalizedType) || !matchesImageType(buffer, normalizedType)) throw new Error('Solo se permiten imágenes JPG, PNG, GIF o WebP válidas.');
+    const processedBuffer = this.imageProcessor ? await this.imageProcessor.process(buffer, normalizedType) : buffer;
     const filePath = path.join(this.directory, id);
-    await writeFile(filePath, buffer, { flag: 'wx' });
-    const record = { id, ownerId, name: safeName(name), type: normalizedType, size: buffer.length, path: filePath, attached: false };
+    await writeFile(filePath, processedBuffer, { flag: 'wx' });
+    const record = { id, ownerId, name: safeName(name), type: normalizedType, size: processedBuffer.length, path: filePath, attached: false };
     this.#records.set(id, record);
     return this.publicRecord(record);
   }
@@ -63,4 +64,5 @@ export class UploadService {
     const record = this.#records.get(id);
     return record ? { ...this.publicRecord(record), path: record.path, inline: INLINE_TYPES.has(record.type), data: await readFile(record.path) } : null;
   }
+  async close() { await this.imageProcessor?.close(); }
 }
