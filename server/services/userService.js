@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { cleanText, MAX_NAME_LENGTH, PRESENCE } from '../utils/events.js';
 
+const MAX_ROOM_PARTICIPANTS = 50;
+
 export class UserService {
   #users = new Map();
 
@@ -8,6 +10,7 @@ export class UserService {
     const name = cleanText(requestedName, MAX_NAME_LENGTH, 'Nombre');
     const id = typeof requestedId === 'string' && /^[\w-]{8,80}$/.test(requestedId) ? requestedId : randomUUID();
     const prior = this.#users.get(id);
+    if (!prior && this.#users.size >= MAX_ROOM_PARTICIPANTS) throw new Error('La sala alcanzó el límite de 50 participantes.');
     if (prior?.ws && prior.ws !== ws) prior.ws.close(4001, 'Sesión reanudada en otra pestaña');
     const user = { id, name, ws, presence: prior?.presence ?? 'online', joinedAt: prior?.joinedAt ?? new Date().toISOString() };
     this.#users.set(id, user);

@@ -7,11 +7,14 @@
 /dist/
 /build/
 /coverage/
+/.chat-uploads/
 
 # Configuración local y secretos
 .env
 .env.*
 !.env.example
+
+HELP.md
 
 # Logs y archivos temporales
 *.log

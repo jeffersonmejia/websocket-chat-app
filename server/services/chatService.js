@@ -9,14 +9,16 @@ export class ChatService {
     if (!message) throw new Error('El mensaje ya no existe.');
     return message;
   }
-  create(user, text, replyTo = null) {
-    const content = cleanText(text, MAX_MESSAGE_LENGTH, 'Mensaje');
+  create(user, text, replyTo = null, attachments = []) {
+    const content = typeof text === 'string' ? text.trim() : '';
+    if (content.length > MAX_MESSAGE_LENGTH) throw new Error(`Mensaje: usa hasta ${MAX_MESSAGE_LENGTH} caracteres.`);
+    if (!content && !attachments.length) throw new Error('Escribe un mensaje o adjunta un archivo.');
     let reply = null;
     if (replyTo !== null) {
       const parent = this.#find(replyTo);
-      reply = { id: parent.id, author: parent.author, text: parent.text.slice(0, 160) };
+      reply = { id: parent.id, author: parent.author, text: (parent.text || parent.attachments?.map((file) => file.name).join(', ') || 'Adjunto').slice(0, 160) };
     }
-    const message = { id: randomUUID(), authorId: user.id, author: user.name, text: content, time: new Date().toISOString(), edited: false, pinned: false, reactions: {}, reply };
+    const message = { id: randomUUID(), authorId: user.id, author: user.name, text: content, attachments: structuredClone(attachments), time: new Date().toISOString(), edited: false, pinned: false, reactions: {}, reply };
     this.#messages.push(message);
     if (this.#messages.length > MAX_HISTORY) this.#messages.shift();
     return structuredClone(message);
@@ -41,15 +43,27 @@ export class ChatService {
   toggleReaction(id, user, emoji) {
     if (!REACTIONS.has(emoji)) throw new Error('Reacción no permitida.');
     const message = this.#find(id);
-    const reactors = new Set(message.reactions[emoji] ?? []);
-    if (reactors.has(user.id)) reactors.delete(user.id); else reactors.add(user.id);
-    if (reactors.size) message.reactions[emoji] = [...reactors]; else delete message.reactions[emoji];
+    const alreadySelected = (message.reactions[emoji] ?? []).includes(user.id);
+    for (const [reaction, userIds] of Object.entries(message.reactions)) {
+      const remaining = userIds.filter((userId) => userId !== user.id);
+      if (remaining.length) message.reactions[reaction] = remaining;
+      else delete message.reactions[reaction];
+    }
+    if (!alreadySelected) message.reactions[emoji] = [...(message.reactions[emoji] ?? []), user.id];
     return structuredClone(message);
   }
-  togglePin(id, user) {
+  togglePin(id) {
     const message = this.#find(id);
-    if (message.authorId !== user.id) throw new Error('Solo el autor puede fijar o desfijar este mensaje.');
-    message.pinned = !message.pinned;
-    return structuredClone(message);
+    let previousMessage = null;
+    if (message.pinned) message.pinned = false;
+    else {
+      const previous = this.#messages.find((entry) => entry.pinned);
+      if (previous) {
+        previous.pinned = false;
+        previousMessage = structuredClone(previous);
+      }
+      message.pinned = true;
+    }
+    return { message: structuredClone(message), previousMessage };
   }
 }

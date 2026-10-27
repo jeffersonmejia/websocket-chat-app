@@ -85,6 +85,12 @@ test('chat WebSocket: broadcast, users, permisos, retos, errores y recuperación
   const pin = waitFor(cris, (frame) => frame.type === 'message:pin');
   send(ana, 'message:pin', { id: first.id });
   assert.equal((await pin).payload.message.pinned, true);
+  const replacementPin = waitFor(cris, (frame) => frame.type === 'message:pin' && frame.payload.message.id === reply.id);
+  send(beto, 'message:pin', { id: reply.id });
+  const pinUpdate = (await replacementPin).payload;
+  assert.equal(pinUpdate.message.pinned, true);
+  assert.equal(pinUpdate.previousMessage.id, first.id);
+  assert.equal(pinUpdate.previousMessage.pinned, false);
 
   const typing = waitFor(beto, (frame) => frame.type === 'typing:start');
   send(ana, 'typing:start');
@@ -115,4 +121,64 @@ test('chat WebSocket: broadcast, users, permisos, retos, errores y recuperación
   const replay = await makeClient(wsUrl, 'Beto', 'client-beto-0002'); clients.push(replay.ws);
   assert.equal(replay.user.id, 'client-beto-0002');
   assert.equal(replay.user.name, 'Beto');
+});
+
+test('llamada de sala: todos reciben opción para unirse, señalización privada y cierre', async (t) => {
+  const { httpServer, wsServer } = createChatServer();
+  await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  const wsUrl = `ws://127.0.0.1:${httpServer.address().port}/ws`;
+  const clients = [];
+  t.after(async () => {
+    for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.close();
+    await new Promise((resolve) => wsServer.close(resolve));
+    await new Promise((resolve) => httpServer.close(resolve));
+  });
+  const alice = await makeClient(wsUrl, 'Alice', 'caller-test-0001'); clients.push(alice.ws);
+  const bob = await makeClient(wsUrl, 'Bob', 'callee-test-0002'); clients.push(bob.ws);
+  const cara = await makeClient(wsUrl, 'Cara', 'observer-test-003'); clients.push(cara.ws);
+  await waitFor(cara.ws, (frame) => frame.type === 'call:available' && frame.payload.callId === null);
+
+  const aliceConnecting = waitFor(alice.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'connecting');
+  const availableAtBob = waitFor(bob.ws, (frame) => frame.type === 'call:available' && frame.payload.callId);
+  const availableAtCara = waitFor(cara.ws, (frame) => frame.type === 'call:available' && frame.payload.callId);
+  send(alice.ws, 'call:start');
+  const callId = (await aliceConnecting).payload.callId;
+  for (const frame of await Promise.all([availableAtBob, availableAtCara])) {
+    assert.equal(frame.payload.callId, callId);
+    assert.deepEqual(frame.payload.participants, [{ id: alice.user.id, name: 'Alice' }]);
+  }
+
+  const aliceSeesBob = waitFor(alice.ws, (frame) => frame.type === 'call:participant-joined' && frame.payload.peer.id === bob.user.id);
+  const bobConnecting = waitFor(bob.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'connecting');
+  send(bob.ws, 'call:join', { callId });
+  await Promise.all([aliceSeesBob, bobConnecting]);
+
+  const offerDelivery = waitFor(bob.ws, (frame) => frame.type === 'webrtc:offer');
+  send(alice.ws, 'webrtc:offer', { callId, description: { type: 'offer', sdp: 'test-sdp' } });
+  assert.deepEqual((await offerDelivery).payload, { callId, description: { type: 'offer', sdp: 'test-sdp' } });
+  assert.equal(cara.ws.frames.some((frame) => frame.type === 'webrtc:offer'), false);
+
+  const endedAtBob = waitFor(bob.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'ended');
+  const bobLeftAtAlice = waitFor(alice.ws, (frame) => frame.type === 'call:participant-left' && frame.payload.peerId === bob.user.id);
+  send(bob.ws, 'call:end', { callId });
+  await Promise.all([endedAtBob, bobLeftAtAlice]);
+  const callEndedForCara = waitFor(cara.ws, (frame) => frame.type === 'call:available' && frame.payload.callId === null);
+  send(alice.ws, 'call:end', { callId });
+  await callEndedForCara;
+});
+
+test('chat limita ráfagas de mensajes por usuario', async (t) => {
+  const { httpServer, wsServer } = createChatServer();
+  await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  const wsUrl = `ws://127.0.0.1:${httpServer.address().port}/ws`;
+  const clients = [];
+  t.after(async () => {
+    for (const ws of clients) if (ws.readyState === WebSocket.OPEN) ws.close();
+    await new Promise((resolve) => wsServer.close(resolve));
+    await new Promise((resolve) => httpServer.close(resolve));
+  });
+  const sender = await makeClient(wsUrl, 'Flood test', 'flood-test-user-01'); clients.push(sender.ws);
+  const error = waitFor(sender.ws, (frame) => frame.type === 'error' && /muy rápido/.test(frame.payload.message));
+  for (let index = 0; index < 13; index += 1) send(sender.ws, 'message:new', { text: `Mensaje ${index}` });
+  assert.match((await error).payload.message, /Espera \d+ s/);
 });

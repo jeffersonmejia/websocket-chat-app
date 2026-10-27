@@ -7,50 +7,82 @@
   <meta name="description" content="Chat grupal en tiempo real mediante WebSocket">
   <title>Chatea · Sala general</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script type="module" src="/js/app.js"></script>
 </head>
 <body>
   <main class="app-shell">
-    <section id="login-view" class="login-card" aria-labelledby="welcome-title">
-      <div class="brand-mark" aria-hidden="true">✳</div>
+    <div id="app-skeleton" class="app-skeleton" aria-hidden="true">
+      <div class="skeleton-welcome"><div class="skeleton-line short"></div><div class="skeleton-line welcome-title"></div><div class="skeleton-line welcome-title second"></div><div class="skeleton-line welcome-copy"></div></div>
+      <div class="skeleton-login"><div class="skeleton-line label"></div><div class="skeleton-field"></div><div class="skeleton-button"></div></div>
+      <div class="skeleton-note"><span></span><div class="skeleton-line"></div></div>
+    </div>
+    <section id="login-view" class="login-card" hidden aria-labelledby="welcome-title">
       <p class="eyebrow">SALA GENERAL</p>
       <h1 id="welcome-title">Una conversación<br>para compartir</h1>
       <p class="muted">Elige cómo quieres aparecer en el chat.</p>
       <form id="login-form" class="login-form">
         <label for="name-input">Tu nombre</label>
         <input id="name-input" name="name" maxlength="24" autocomplete="nickname" placeholder="Por ejemplo, Alex" required>
-        <button class="button primary full" type="submit">Entrar al chat <span aria-hidden="true">→</span></button>
+        <button class="button primary full" type="submit">Entrar al chat <i data-lucide="arrow-right" aria-hidden="true"></i></button>
         <p id="login-error" class="form-error" role="alert"></p>
       </form>
-      <div class="privacy-note"><span aria-hidden="true">●</span> Tu conversación se comparte con quienes están en línea.</div>
+      <div class="privacy-note"><span class="privacy-status" aria-hidden="true"></span> Tu conversación se comparte con quienes están en línea.</div>
     </section>
 
     <section id="chat-view" class="chat-layout" hidden>
+      <div id="chat-skeleton" class="chat-skeleton" aria-hidden="true"><aside><div class="skeleton-line short"></div><div class="skeleton-person"></div><div class="skeleton-person"></div><div class="skeleton-person"></div><div class="skeleton-profile"></div></aside><div class="skeleton-chat"><div class="skeleton-chat-header"><div class="skeleton-room-icon"></div><div><div class="skeleton-line wide"></div><div class="skeleton-line short"></div></div></div><div class="skeleton-messages"><div class="skeleton-bubble"></div><div class="skeleton-bubble right"></div><div class="skeleton-bubble"></div></div><div class="skeleton-composer"></div></div></div>
       <aside class="sidebar" aria-label="Sala y participantes">
-        <div class="sidebar-brand"><div class="brand-mark small" aria-hidden="true">✳</div><div><strong>Chatea</strong><small>Conversaciones cercanas</small></div></div>
-        <div class="room-card"><span class="room-icon" aria-hidden="true">#</span><div><strong>Sala general</strong><small>Todos son bienvenidos</small></div><span class="room-dot"></span></div>
         <div class="people-heading"><span>PERSONAS</span><span id="user-count" class="count-pill">0</span></div>
         <ul id="user-list" class="user-list" aria-live="polite"></ul>
-        <div class="sidebar-bottom"><div class="profile"><div id="my-avatar" class="avatar">?</div><div class="profile-copy"><strong id="my-name">Tú</strong><small>En esta sala</small></div><button id="presence-button" class="icon-button" type="button" title="Cambiar presencia" aria-label="Cambiar presencia">●</button></div></div>
+        <div class="sidebar-bottom"><div class="profile"><div id="my-avatar" class="avatar">?</div><div class="profile-copy"><strong id="my-name">Tú</strong><small>En esta sala</small></div><button id="leave-button" class="aside-leave-button" type="button" title="Salir del chat" aria-label="Salir del chat"><i data-lucide="log-out"></i></button><button id="presence-button" class="icon-button" type="button" title="Cambiar presencia" aria-label="Cambiar presencia"><i data-lucide="circle-dot"></i></button></div></div>
       </aside>
 
       <section class="conversation" aria-label="Conversación de sala general">
-        <header class="chat-header"><div class="header-title"><div class="room-icon large" aria-hidden="true">#</div><div><h2>Sala general</h2><p><span class="connection-dot" id="connection-dot"></span><span id="connection-status" role="status">Desconectado</span><span class="header-separator">·</span><span id="header-count">0 personas</span></p></div></div><div class="header-actions"><button id="search-toggle" class="icon-button search-toggle" type="button" aria-label="Buscar mensajes" title="Buscar mensajes">⌕</button><button id="leave-button" class="leave-button" type="button">Salir</button></div></header>
-        <div id="search-panel" class="search-panel" hidden><label class="sr-only" for="search-input">Buscar en mensajes cargados</label><input id="search-input" type="search" placeholder="Buscar en la conversación…"><button id="clear-search" class="icon-button" type="button" aria-label="Limpiar búsqueda">×</button><small>Busca en los mensajes cargados en esta sesión.</small></div>
-        <div id="pinned-bar" class="pinned-bar" hidden><span aria-hidden="true">⌖</span><div><small>MENSAJE FIJADO</small><p id="pinned-text"></p></div></div>
+        <header class="chat-header"><div class="header-title"><div class="room-icon large" aria-hidden="true"><i data-lucide="messages-square"></i></div><div><h2>Sala general</h2><p><span class="connection-dot" id="connection-dot"></span><span id="connection-status" role="status">Desconectado</span><span class="header-separator">·</span><span id="header-count">0 personas</span></p></div></div><div class="header-actions"><button id="start-call" class="start-call-button" type="button"><i data-lucide="video" aria-hidden="true"></i><span>Llamada grupal</span></button><div id="search-panel" class="header-search"><i data-lucide="search" aria-hidden="true"></i><label class="sr-only" for="search-input">Buscar en mensajes cargados</label><input id="search-input" type="search" placeholder="Buscar mensajes…"><button id="clear-search" class="icon-button" type="button" aria-label="Limpiar búsqueda" title="Limpiar búsqueda"><i data-lucide="x"></i></button></div></div></header>
+        <section id="active-call-banner" class="active-call-banner" hidden aria-live="polite"><div><i data-lucide="video"></i><span id="active-call-label"></span></div><button id="join-active-call" class="join-call-button" type="button"><i data-lucide="phone"></i><span>Unirse</span></button></section>
+        <div id="pinned-bar" class="pinned-bar" hidden><i data-lucide="pin" aria-hidden="true"></i><div><small>MENSAJE FIJADO</small><p id="pinned-text"></p></div></div>
         <ol id="messages" class="messages" aria-live="polite" aria-relevant="additions text" aria-label="Mensajes"></ol>
         <div id="typing-indicator" class="typing-indicator" aria-live="polite"></div>
         <div id="reply-bar" class="reply-bar" hidden></div>
         <form id="message-form" class="composer">
+          <input id="attachment-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple hidden>
+          <div id="attachment-queue" class="attachment-queue" aria-live="polite" hidden></div>
+          <button id="attachment-button" class="attachment-button" type="button" aria-label="Añadir adjuntos" title="Añadir adjuntos"><i data-lucide="paperclip" aria-hidden="true"></i></button>
           <label class="sr-only" for="message-input">Escribe un mensaje</label>
-          <textarea id="message-input" rows="1" maxlength="2000" placeholder="Escribe un mensaje…" required></textarea>
-          <div class="composer-bottom"><span>Enter para enviar · Shift + Enter para nueva línea</span><button class="send-button" type="submit" aria-label="Enviar mensaje" title="Enviar">↑</button></div>
-          <p id="message-error" class="form-error" role="alert"></p>
+          <textarea id="message-input" rows="1" maxlength="2000" placeholder="Escribe un mensaje…"></textarea>
+          <div class="composer-bottom"><button class="send-button" type="submit" aria-label="Enviar mensaje" title="Enviar"><i data-lucide="send" aria-hidden="true"></i></button></div>
         </form>
       </section>
+    </section>
+    <section id="call-view" class="call-view" hidden aria-label="Videollamada">
+      <header class="call-header">
+        <div class="call-heading"><span class="call-brand"><i data-lucide="video"></i></span><div><strong id="call-peer-name">Videollamada</strong><span id="webrtc-status" role="status">Esperando conexión…</span></div></div>
+        <span class="call-secure"><i data-lucide="shield-check"></i> Conexión privada</span>
+      </header>
+      <section id="video-panel" class="video-panel" aria-label="Participantes de la videollamada">
+        <div id="call-skeleton" class="call-skeleton" aria-hidden="true"><div class="skeleton-video"></div><div class="skeleton-video small"></div></div>
+        <div class="video-grid">
+          <div id="remote-tiles" class="remote-tiles"></div>
+          <figure class="video-tile local-tile"><video id="local-video" autoplay playsinline muted></video><div id="local-placeholder" class="video-placeholder"><i data-lucide="video-off"></i><span>Preparando tu cámara…</span></div><figcaption>Tú</figcaption></figure>
+        </div>
+      </section>
+      <footer class="call-controls"><span class="call-live-status"><span class="call-live-dot"></span><span id="call-duration">Conectando</span></span><div class="call-control-actions"><button id="toggle-microphone" class="call-media-button" type="button" disabled aria-label="Silenciar micrófono" aria-pressed="false" title="Silenciar micrófono"><i data-lucide="mic"></i><span>Micrófono</span></button><button id="toggle-camera" class="call-media-button" type="button" disabled aria-label="Apagar cámara" aria-pressed="false" title="Apagar cámara"><i data-lucide="video"></i><span>Cámara</span></button><button id="end-call" class="call-end-button" type="button"><i data-lucide="phone-off"></i><span>Finalizar llamada</span></button></div><span class="call-controls-spacer"></span></footer>
     </section>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="unread-badge" class="unread-badge" hidden></div>
   </main>
+  <dialog id="attachment-confirm-dialog" class="attachment-confirm-dialog" aria-labelledby="attachment-confirm-title" aria-describedby="attachment-confirm-description">
+    <section class="attachment-confirm-card">
+      <div class="attachment-confirm-icon"><i data-lucide="image"></i></div>
+      <h2 id="attachment-confirm-title">Adjuntar fotos</h2>
+      <p id="attachment-confirm-description">Solo se permiten fotos JPG, PNG, GIF o WebP.</p>
+      <p class="attachment-confirm-limit">Hasta 5 fotos por mensaje · máximo 5 MB por foto</p>
+      <div class="attachment-confirm-actions">
+        <button id="attachment-confirm-cancel" class="attachment-confirm-cancel" type="button">Cancelar</button>
+        <button id="attachment-confirm-continue" class="attachment-confirm-continue" type="button">Continuar</button>
+      </div>
+    </section>
+  </dialog>
 </body>
 </html>

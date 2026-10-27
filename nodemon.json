@@ -1,0 +1,17 @@
+{
+  "watch": ["server"],
+  "ext": "js,mjs,cjs,json",
+  "ignore": [
+    "node_modules/**",
+    "public/**",
+    "tests/**",
+    "coverage/**",
+    "dist/**",
+    "build/**",
+    "*.md",
+    "*.log",
+    "*.tmp"
+  ],
+  "delay": "750ms",
+  "signal": "SIGTERM"
+}

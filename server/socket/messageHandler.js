@@ -1,11 +1,14 @@
 import { EVENTS } from '../utils/events.js';
 
-export function handleMessageEvent({ ws, type, payload, users, chat, broadcast, send, typing }) {
+export function handleMessageEvent({ ws, type, payload, users, chat, uploads, broadcast, send, typing, messageRateLimiter }) {
   const user = users.getBySocket(ws);
   if (!user) throw new Error('Ingresa con tu nombre antes de usar el chat.');
   switch (type) {
     case EVENTS.NEW: {
-      const message = chat.create(user, payload.text, payload.replyTo ?? null);
+      messageRateLimiter?.check(user.id);
+      const attachments = uploads.resolveAttachments(payload.attachments ?? [], user.id);
+      const message = chat.create(user, payload.text, payload.replyTo ?? null, attachments);
+      uploads.markAttached(attachments);
       broadcast(EVENTS.NEW, { message });
       send(ws, 'message:sent', { id: message.id });
       break;
@@ -26,8 +29,8 @@ export function handleMessageEvent({ ws, type, payload, users, chat, broadcast, 
       break;
     }
     case EVENTS.PIN: {
-      const message = chat.togglePin(payload.id, user);
-      broadcast(EVENTS.PIN, { message });
+      const update = chat.togglePin(payload.id);
+      broadcast(EVENTS.PIN, update);
       break;
     }
     case EVENTS.TYPING_START:
