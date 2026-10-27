@@ -8,6 +8,7 @@ let userId = null;
 let messages = [];
 let users = [];
 let replyTo = null;
+let editingMessageId = null;
 let search = '';
 let unread = 0;
 let typingTimer = null;
@@ -18,10 +19,17 @@ function render() {
   renderMessages(messages, userId, {
     react: (id, emoji) => socket.send('reaction:toggle', { id, emoji }),
     reply: (message) => { replyTo = message.id; setReply(message, () => { replyTo = null; setReply(null); }); element('#message-input').focus(); },
-    edit: (message) => { const text = prompt('Edita tu mensaje:', message.text); if (text !== null) socket.send('message:edit', { id: message.id, text }); },
+    edit: (message) => { editingMessageId = message.id; render(); },
+    saveEdit: (message, text) => {
+      if (!text.trim()) { toast('El mensaje no puede quedar vacío.'); return; }
+      if (socket.send('message:edit', { id: message.id, text })) editingMessageId = null;
+      else toast('No hay conexión. No se pudo editar el mensaje.');
+      render();
+    },
+    cancelEdit: () => { editingMessageId = null; render(); },
     remove: (id) => { if (confirm('¿Eliminar este mensaje?')) socket.send('message:delete', { id }); },
     pin: (id) => socket.send('message:pin', { id }),
-  }, search);
+  }, search, editingMessageId);
   setPinned(messages.find((message) => message.pinned) || null);
 }
 function connect(name, id = crypto.randomUUID()) {
@@ -39,7 +47,7 @@ function updateTyping() {
 
 socket.addEventListener('state', ({ detail }) => {
   setConnection(detail.state);
-  if (detail.state !== 'connected') setUsers([]);
+  if (detail.state !== 'connected') setUsers([], userId);
 });
 socket.addEventListener('retry', ({ detail }) => toast(`Conexión interrumpida. Reintento ${detail.attempt} en ${Math.ceil(detail.delay / 1000)} s.`));
 socket.addEventListener('transport-error', () => setConnection('disconnected'));
@@ -49,8 +57,8 @@ socket.addEventListener('event', ({ detail: frame }) => {
   switch (frame.type) {
     case 'chat:sync':
       userId = payload.user.id; identity.id = userId; sessionStorage.setItem(storeKey, JSON.stringify({ name: identity.name }));
-      messages = payload.messages || []; users = payload.users || []; setUsers(users); render(); break;
-    case 'users:list': users = payload.users || []; setUsers(users); break;
+      messages = payload.messages || []; users = payload.users || []; setUsers(users, userId); render(); break;
+    case 'users:list': users = payload.users || []; setUsers(users, userId); break;
     case 'user:join': toast(`${payload.user.name} entró al chat.`); break;
     case 'user:leave': toast(`${payload.user.name} salió del chat.`); typingUsers.delete(payload.user.id); setTyping([...typingUsers.values()]); break;
     case 'message:new':
@@ -59,7 +67,10 @@ socket.addEventListener('event', ({ detail: frame }) => {
         if (payload.message.authorId !== userId && (document.hidden || !document.hasFocus())) { unread += 1; setUnread(unread); }
       }
       break;
-    case 'message:edit': case 'reaction:toggle': case 'message:pin':
+    case 'message:edit':
+      editingMessageId = null;
+      messages = messages.map((message) => message.id === payload.message.id ? payload.message : message); render(); break;
+    case 'reaction:toggle': case 'message:pin':
       messages = messages.map((message) => message.id === payload.message.id ? payload.message : message); render(); break;
     case 'message:delete':
       messages = messages.filter((message) => message.id !== payload.id);
@@ -67,7 +78,7 @@ socket.addEventListener('event', ({ detail: frame }) => {
       render(); break;
     case 'typing:start': typingUsers.set(payload.userId, payload.name); setTyping([...typingUsers.values()]); break;
     case 'typing:stop': typingUsers.delete(payload.userId); setTyping([...typingUsers.values()]); break;
-    case 'presence:update': users = users.map((user) => user.id === payload.user.id ? payload.user : user); setUsers(users); break;
+    case 'presence:update': users = users.map((user) => user.id === payload.user.id ? payload.user : user); setUsers(users, userId); break;
     case 'error': toast(payload.message || 'No se pudo completar la operación.'); break;
   }
 });
@@ -102,6 +113,15 @@ element('#clear-search').addEventListener('click', () => { element('#search-inpu
 element('#presence-button').addEventListener('click', () => {
   const user = users.find((entry) => entry.id === userId);
   if (user) socket.send('presence:update', { presence: user.presence === 'away' ? 'online' : 'away' });
+});
+element('#leave-button').addEventListener('click', () => {
+  socket.close();
+  sessionStorage.removeItem(storeKey);
+  identity = null; userId = null; users = []; messages = []; replyTo = null; editingMessageId = null; search = ''; unread = 0; wasTyping = false;
+  clearTimeout(typingTimer);
+  setUsers([]); setConnection('disconnected'); setReply(null); setPinned(null); setTyping([]); setUnread(0);
+  element('#message-input').value = ''; element('#search-input').value = ''; element('#search-panel').hidden = true;
+  showLogin();
 });
 function updatePresence() { if (userId) socket.send('presence:update', { presence: document.hidden ? 'away' : 'online' }); }
 document.addEventListener('visibilitychange', () => {
