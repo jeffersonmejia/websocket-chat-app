@@ -4,107 +4,98 @@ import { EVENTS } from '../utils/events.js';
 const MAX_SDP_LENGTH = 48_000;
 const validId = (value) => typeof value === 'string' && /^[\w-]{8,80}$/.test(value);
 
-/** Owns group call rooms, participant reservations, signaling and cleanup. */
+/** Owns one-to-one call invitations, participant state and private signaling. */
 export function createCallService({ users, send }) {
   const calls = new Map();
   const byUser = new Map();
-
+  const pending = new Map();
   const deliver = (userId, type, payload) => {
     const recipient = users.getById(userId);
     if (recipient) send(recipient.ws, type, payload);
   };
-  const participantList = (call) => [...call.participants.values()].map(({ id, name }) => ({ id, name }));
-  const availability = () => {
-    const active = [...calls.values()].filter((call) => call.state === 'active');
-    for (const user of users.list()) {
-      const room = active.find((call) => !call.participants.has(user.id));
-      if (!room) deliver(user.id, EVENTS.CALL_AVAILABLE, { callId: null });
-      else deliver(user.id, EVENTS.CALL_AVAILABLE, {
-        callId: room.callId,
-        participants: participantList(room),
-        count: room.participants.size,
-      });
-    }
-  };
-  const announceAvailability = (user) => {
-    const room = [...calls.values()].find((call) => call.state === 'active' && !call.participants.has(user.id));
-    deliver(user.id, EVENTS.CALL_AVAILABLE, room ? {
-      callId: room.callId,
-      participants: participantList(room),
-      count: room.participants.size,
-    } : { callId: null });
-  };
   const getCall = (user, callId) => {
     if (!validId(callId)) throw new Error('Identificador de llamada inválido.');
     const call = calls.get(callId);
-    if (!call) throw new Error('La llamada ya no está disponible.');
+    if (!call || !call.participants.has(user.id)) throw new Error('La llamada ya no está disponible.');
     return call;
   };
-
-  const start = (user) => {
-    if (byUser.has(user.id)) {
-      deliver(user.id, EVENTS.CALL_STATE, { state: 'failed', message: 'Ya estás en una llamada.' });
-      return;
-    }
-    if ([...calls.values()].some((call) => call.state === 'active')) {
-      deliver(user.id, EVENTS.CALL_STATE, { state: 'failed', message: 'Ya hay una llamada en curso. Únete desde el aviso.' });
-      return;
-    }
-    const callId = randomUUID();
-    const call = {
-      callId, state: 'active',
-      participants: new Map([[user.id, { id: user.id, name: user.name }]]),
-    };
-    calls.set(callId, call);
-    byUser.set(user.id, callId);
-    deliver(user.id, EVENTS.CALL_STATE, { callId, state: 'connecting', selfId: user.id, participants: participantList(call) });
-    availability();
+  const clearCall = (call, state, message) => {
+    calls.delete(call.callId);
+    for (const id of call.participants) byUser.delete(id);
+    for (const id of call.participants) deliver(id, EVENTS.CALL_STATE, { callId: call.callId, state, message });
   };
 
-  const join = (user, callId) => {
-    const call = getCall(user, callId);
-    if (call.state !== 'active') throw new Error('Esta llamada todavía no está disponible para unirse.');
-    if (byUser.has(user.id)) throw new Error('Ya estás en una llamada.');
-    const existing = participantList(call);
-    call.participants.set(user.id, { id: user.id, name: user.name });
-    byUser.set(user.id, callId);
-    deliver(user.id, EVENTS.CALL_STATE, { callId, state: 'connecting', selfId: user.id, participants: existing });
-    for (const participant of call.participants.values()) {
-      if (participant.id !== user.id) deliver(participant.id, EVENTS.CALL_PARTICIPANT_JOINED, { callId, peer: { id: user.id, name: user.name } });
-    }
-    availability();
+  const start = (user, toId) => {
+    if (!validId(toId) || toId === user.id) throw new Error('Selecciona a otro usuario para llamar.');
+    const recipient = users.getById(toId);
+    if (!recipient) throw new Error('El usuario ya no está conectado.');
+    if (byUser.has(user.id) || pending.has(user.id)) throw new Error('Ya tienes una llamada o invitación pendiente.');
+    if (byUser.has(toId) || pending.has(toId)) throw new Error('El usuario está ocupado.');
+    const callId = randomUUID();
+    const call = { callId, callerId: user.id, calleeId: toId, state: 'ringing', participants: new Set([user.id, toId]) };
+    calls.set(callId, call);
+    pending.set(user.id, callId); pending.set(toId, callId);
+    call.timer = setTimeout(() => {
+      if (calls.get(callId) !== call || call.state !== 'ringing') return;
+      calls.delete(callId); pending.delete(call.callerId); pending.delete(call.calleeId);
+      deliver(call.callerId, EVENTS.CALL_STATE, { callId, state: 'failed', message: 'No respondieron a la llamada.' });
+      deliver(call.calleeId, EVENTS.CALL_STATE, { callId, state: 'ended', message: 'La invitación expiró.' });
+    }, 30_000);
+    call.timer.unref?.();
+    deliver(user.id, EVENTS.CALL_STATE, { callId, state: 'outgoing', peer: { id: toId, name: recipient.name } });
+    deliver(toId, EVENTS.CALL_INCOMING, { callId, caller: { id: user.id, name: user.name } });
+  };
+
+  const accept = (user, callId) => {
+    const call = calls.get(callId);
+    if (!call || call.state !== 'ringing' || call.calleeId !== user.id) throw new Error('La invitación ya no está disponible.');
+    pending.delete(call.callerId); pending.delete(call.calleeId);
+    call.state = 'active';
+    byUser.set(call.callerId, callId); byUser.set(call.calleeId, callId);
+    const caller = users.getById(call.callerId);
+    const callee = users.getById(call.calleeId);
+    clearTimeout(call.timer);
+    deliver(call.callerId, EVENTS.CALL_STATE, { callId, state: 'connecting', selfId: call.callerId, participants: [{ id: call.calleeId, name: user.name }], offerPeerIds: [call.calleeId] });
+    deliver(call.calleeId, EVENTS.CALL_STATE, { callId, state: 'connecting', selfId: call.calleeId, participants: [{ id: call.callerId, name: caller?.name || 'Usuario' }], offerPeerIds: [] });
+  };
+
+  const reject = (user, callId) => {
+    const call = calls.get(callId);
+    if (!call || call.state !== 'ringing' || call.calleeId !== user.id) throw new Error('La invitación ya no está disponible.');
+    clearTimeout(call.timer);
+    pending.delete(call.callerId); pending.delete(call.calleeId); calls.delete(callId);
+    deliver(call.callerId, EVENTS.CALL_STATE, { callId, state: 'rejected', peer: { id: user.id, name: user.name }, message: `${user.name} rechazó la llamada.` });
+    deliver(user.id, EVENTS.CALL_STATE, { callId, state: 'ended', message: 'Rechazaste la llamada.' });
   };
 
   const end = (user, callId) => {
-    const call = getCall(user, callId);
-    if (!call.participants.has(user.id)) throw new Error('No perteneces a esta llamada.');
-    call.participants.delete(user.id);
-    byUser.delete(user.id);
-    deliver(user.id, EVENTS.CALL_STATE, { callId, state: 'ended', message: 'Saliste de la llamada.' });
-    for (const participant of call.participants.values()) deliver(participant.id, EVENTS.CALL_PARTICIPANT_LEFT, { callId, peerId: user.id });
-    if (!call.participants.size) {
-      calls.delete(callId);
+    const call = calls.get(callId);
+    if (!call || !call.participants.has(user.id)) throw new Error('La llamada ya no está disponible.');
+    if (call.state === 'ringing') {
+      const peerId = call.callerId === user.id ? call.calleeId : call.callerId;
+      clearTimeout(call.timer); pending.delete(call.callerId); pending.delete(call.calleeId); calls.delete(callId);
+      deliver(user.id, EVENTS.CALL_STATE, { callId, state: 'ended', message: 'Cancelaste la llamada.' });
+      deliver(peerId, EVENTS.CALL_STATE, { callId, state: 'ended', message: 'La llamada fue cancelada.' });
+      return;
     }
-    availability();
+    clearCall(call, 'ended', `${user.name} finalizó la llamada.`);
   };
 
   const signal = (user, type, payload) => {
     const call = getCall(user, payload.callId);
-    if (call.state !== 'active' || !call.participants.has(user.id)) throw new Error('No perteneces a una llamada activa.');
-    const peerId = payload.toId;
-    if (!validId(peerId) || peerId === user.id || !call.participants.has(peerId)) throw new Error('Participante de llamada inválido.');
+    if (call.state !== 'active') throw new Error('La llamada no está activa.');
+    const peerId = [...call.participants].find((id) => id !== user.id);
+    if (!peerId || !users.getById(peerId)) throw new Error('El otro usuario ya no está conectado.');
     if (type === EVENTS.CALL_MEDIA_STATE) {
       const { audioEnabled, videoEnabled } = payload;
       if (typeof audioEnabled !== 'boolean' || typeof videoEnabled !== 'boolean') throw new Error('Estado de micrófono/cámara inválido.');
-      deliver(peerId, type, { callId: call.callId, fromId: user.id, audioEnabled, videoEnabled });
-      return;
+      deliver(peerId, type, { callId: call.callId, fromId: user.id, audioEnabled, videoEnabled }); return;
     }
     if (type === EVENTS.WEBRTC_OFFER || type === EVENTS.WEBRTC_ANSWER) {
       const description = payload.description;
       const expectedType = type === EVENTS.WEBRTC_OFFER ? 'offer' : 'answer';
       if (!description || description.type !== expectedType || typeof description.sdp !== 'string' || description.sdp.length > MAX_SDP_LENGTH) throw new Error('Descripción WebRTC inválida.');
-      deliver(peerId, type, { callId: call.callId, fromId: user.id, description });
-      return;
+      deliver(peerId, type, { callId: call.callId, fromId: user.id, description }); return;
     }
     const candidate = payload.candidate;
     if (!candidate || typeof candidate !== 'object' || typeof candidate.candidate !== 'string' || candidate.candidate.length > 2000) throw new Error('Candidato WebRTC inválido.');
@@ -112,22 +103,15 @@ export function createCallService({ users, send }) {
   };
 
   const disconnected = (userId) => {
-    const callId = byUser.get(userId);
+    const callId = pending.get(userId) || byUser.get(userId);
     const call = calls.get(callId);
     if (!call) return;
-    if (call.participants.has(userId)) {
-      call.participants.delete(userId);
-      byUser.delete(userId);
-      for (const participant of call.participants.values()) deliver(participant.id, EVENTS.CALL_PARTICIPANT_LEFT, { callId, peerId: userId });
-      if (!call.participants.size) calls.delete(callId);
-      availability();
-    }
+    if (call.state === 'ringing') {
+      clearTimeout(call.timer); pending.delete(call.callerId); pending.delete(call.calleeId); calls.delete(callId);
+      const peerId = call.callerId === userId ? call.calleeId : call.callerId;
+      deliver(peerId, EVENTS.CALL_STATE, { callId, state: 'failed', message: 'El otro usuario se desconectó.' });
+    } else clearCall(call, 'ended', 'El otro usuario se desconectó.');
   };
-
-  const close = () => {
-    calls.clear();
-    byUser.clear();
-  };
-
-  return { start, end, join, signal, announceAvailability, disconnected, close };
+  const close = () => { for (const call of calls.values()) clearTimeout(call.timer); calls.clear(); byUser.clear(); pending.clear(); };
+  return { start, accept, reject, end, signal, disconnected, close };
 }

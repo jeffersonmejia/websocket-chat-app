@@ -33,7 +33,7 @@ export function setConnection(state) {
   $('#connection-status').textContent = labels[state] || 'Desconectado';
   $('#connection-dot').className = `connection-dot ${state}`;
 }
-export function setUsers(users, currentUserId = null) {
+export function setUsers(users, currentUserId = null, onCall = null, callDisabled = false) {
   $('#user-count').textContent = String(users.length);
   $('#header-count').textContent = `${users.length} ${users.length === 1 ? 'persona' : 'personas'}`;
   const list = $('#user-list');
@@ -48,6 +48,11 @@ export function setUsers(users, currentUserId = null) {
     const presence = document.createElement('small'); presence.textContent = user.presence === 'away' ? 'Ausente' : 'En línea';
     copy.append(name, presence); const dot = document.createElement('span'); dot.className = `presence-dot ${user.presence}`; dot.setAttribute('aria-label', presence.textContent);
     item.append(avatar, copy, dot);
+    if (user.id !== currentUserId && onCall) {
+      const call = document.createElement('button'); call.type = 'button'; call.className = 'user-call';
+      call.disabled = callDisabled; call.setAttribute('aria-label', `Llamar a ${user.name}`); call.title = `Llamar a ${user.name}`;
+      call.innerHTML = '<i data-lucide="phone"></i>'; call.addEventListener('click', () => onCall(user)); item.append(call);
+    }
     list.append(item);
   }
   const currentUser = users.find((user) => user.id === currentUserId);

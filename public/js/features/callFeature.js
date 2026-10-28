@@ -7,7 +7,7 @@ export class CallFeature {
     this.socket = socket;
     this.media = new VideoCall(socket);
     this.activeCallId = null;
-    this.availableCall = null;
+    this.pendingCall = null;
     this.connectionState = 'disconnected';
     this.participants = new Map();
     this.remoteMedia = new Map();
@@ -18,12 +18,11 @@ export class CallFeature {
     this.bindControls();
     this.bindMediaEvents();
   }
-  startCall = () => this.socket.send('call:start');
   handleFrame = ({ detail: frame }) => {
     const payload = frame.payload || {};
     const handlers = {
       'call:state': () => this.handleState(payload),
-      'call:available': () => this.showAvailableCall(payload),
+      'call:incoming': () => this.showIncoming(payload),
       'call:participant-joined': () => this.participantJoined(payload),
       'call:participant-left': () => this.participantLeft(payload),
       'call:media-state': () => this.updateRemoteMedia(payload),
@@ -38,18 +37,16 @@ export class CallFeature {
     this.connectionState = detail.state;
     if (detail.state !== 'connected') {
       if (this.activeCallId) this.reset();
-      this.showAvailableCall({ callId: null });
+      this.clearPending();
     }
-    this.updateStartButton();
   };
   bindControls() {
-    element('#start-call').addEventListener('click', this.startCall);
+    element('#accept-call').addEventListener('click', () => this.respond(true));
+    element('#reject-call').addEventListener('click', () => this.respond(false));
+    element('#cancel-call').addEventListener('click', () => this.end());
     element('#end-call').addEventListener('click', () => this.end());
     element('#toggle-microphone').addEventListener('click', () => this.toggleMedia('audio'));
     element('#toggle-camera').addEventListener('click', () => this.toggleMedia('video'));
-    element('#join-active-call').addEventListener('click', () => {
-      if (this.availableCall?.callId) this.socket.send('call:join', { callId: this.availableCall.callId });
-    });
   }
   bindMediaEvents() {
     this.media.addEventListener('state', ({ detail }) => this.updateMediaState(detail));
@@ -67,46 +64,52 @@ export class CallFeature {
     });
     this.media.addEventListener('cleanup', () => this.clearMediaView());
   }
-  showAvailableCall(payload) {
-    this.availableCall = payload.callId ? payload : null;
-    const banner = element('#active-call-banner');
-    if (!this.availableCall || this.activeCallId) {
-      banner.hidden = true;
-      this.updateStartButton();
-      return;
-    }
-    const names = (payload.participants || []).map((participant) => participant.name);
-    const visible = names.slice(0, 3);
-    let summary = visible.join(', ');
-    if (names.length > 3) summary += names.length === 4 ? ' y 1 otro' : ` y ${names.length - 3} otros`;
-    element('#active-call-label').textContent = `${summary} ${names.length === 1 ? 'está' : 'están'} en llamada`;
-    banner.hidden = false;
-    this.updateStartButton();
+  callUser(user) {
+    if (this.isBusy()) { toast('Termina tu invitación o llamada actual antes de iniciar otra.'); return; }
+    if (this.connectionState !== 'connected') { toast('Conéctate al chat antes de llamar.'); return; }
+    this.socket.send('call:start', { toId: user.id });
+  }
+  isBusy() { return Boolean(this.activeCallId || this.pendingCall); }
+  showIncoming(payload) {
+    this.pendingCall = { callId: payload.callId, direction: 'incoming', peer: payload.caller };
+    element('#incoming-call-label').textContent = `${payload.caller.name} te está llamando.`;
+    element('#incoming-call-banner').hidden = false;
+    element('#outgoing-call-banner').hidden = true;
     window.lucide?.createIcons();
   }
-  updateStartButton() {
-    const button = element('#start-call');
-    button.disabled = this.connectionState !== 'connected' || Boolean(this.activeCallId || this.availableCall);
-    button.title = this.availableCall ? 'Hay una llamada grupal en curso; únete desde el aviso.' : 'Avisar a la sala e iniciar una llamada grupal';
+  respond(accepted) {
+    if (!this.pendingCall || this.pendingCall.direction !== 'incoming') return;
+    this.socket.send(accepted ? 'call:accept' : 'call:reject', { callId: this.pendingCall.callId });
+    element('#incoming-call-banner').hidden = true;
+  }
+  clearPending() {
+    this.pendingCall = null;
+    element('#incoming-call-banner').hidden = true;
+    element('#outgoing-call-banner').hidden = true;
   }
   handleState(payload) {
     if (payload.callId && this.activeCallId && payload.callId !== this.activeCallId) return;
     switch (payload.state) {
       case 'connecting': {
+        this.clearPending();
         this.activeCallId = payload.callId;
         const peers = (payload.participants || []).filter((participant) => participant.id !== payload.selfId);
         peers.forEach((participant) => this.participants.set(participant.id, participant));
         this.showCallView('Videollamada', 'Conectando audio y video…');
         this.updateCallTitle();
-        this.updateStartButton();
-        void this.media.start(payload.callId, peers.map((participant) => participant.id), [])
+        void this.media.start(payload.callId, peers.map((participant) => participant.id), payload.offerPeerIds || [])
           .then(() => this.sendMediaStateToAll());
         break;
       }
+      case 'outgoing':
+        this.pendingCall = { callId: payload.callId, direction: 'outgoing', peer: payload.peer };
+        element('#outgoing-call-label').textContent = `Llamando a ${payload.peer.name}…`;
+        element('#outgoing-call-banner').hidden = false;
+        break;
       case 'rejected': case 'ended': case 'failed':
+        this.clearPending();
         this.activeCallId = null;
         this.media.cleanup();
-        this.updateStartButton();
         if (payload.message) toast(payload.message);
         break;
     }
@@ -248,11 +251,9 @@ export class CallFeature {
     this.remoteMedia.clear();
     this.activeCallId = null;
     this.stopDuration();
-    this.updateStartButton();
-    element('#active-call-banner').hidden = false;
+    element('#incoming-call-banner').hidden = true;
     element('#call-view').hidden = true;
     element('#chat-view').hidden = false;
-    if (!this.availableCall) element('#active-call-banner').hidden = true;
   }
   resetMediaButton(selector, icon, label, text) {
     const button = element(selector);
@@ -264,7 +265,7 @@ export class CallFeature {
   showCallView(title, status) {
     element('#call-peer-name').textContent = title;
     element('#webrtc-status').textContent = status;
-    element('#active-call-banner').hidden = true;
+    element('#incoming-call-banner').hidden = true;
     element('#call-skeleton').hidden = false;
     element('#call-view').hidden = false;
     element('#chat-view').hidden = true;
@@ -280,10 +281,14 @@ export class CallFeature {
   }
   stopDuration() { clearInterval(this.durationTimer); this.durationTimer = null; this.connectedAt = null; }
   end() {
+    if (this.pendingCall) {
+      this.socket.send('call:end', { callId: this.pendingCall.callId });
+      this.clearPending();
+    }
     if (this.activeCallId && this.media.callId !== this.activeCallId) this.socket.send('call:end', { callId: this.activeCallId });
     this.media.end();
   }
-  reset() { this.activeCallId = null; this.availableCall = null; this.media.cleanup(); element('#active-call-banner').hidden = true; this.updateStartButton(); }
+  reset() { this.activeCallId = null; this.clearPending(); this.media.cleanup(); }
   destroy() {
     this.end();
     this.socket.removeEventListener('event', this.handleFrame);

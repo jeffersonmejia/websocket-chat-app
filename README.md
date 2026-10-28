@@ -4,7 +4,7 @@
 
 Chatea es una aplicación web de chat grupal en tiempo real. Los clientes se conectan al servidor mediante WebSocket para intercambiar mensajes, presencia y señalización de llamadas. El audio y el video se transmiten entre navegadores mediante WebRTC. Las imágenes adjuntas se validan en el servidor, se procesan mediante un pool de `worker_threads` y se guardan en el sistema de archivos local.
 
-La aplicación ofrece mensajes, respuestas citadas, búsqueda, edición, eliminación, reacciones, un mensaje fijado compartido, indicador de escritura, presencia, carga de imágenes con progreso, videollamadas grupales, reconexión WebSocket y procesamiento de imágenes en paralelo.
+La aplicación ofrece mensajes, respuestas citadas, búsqueda, edición, eliminación, reacciones, un mensaje fijado compartido, indicador de escritura, presencia, carga de imágenes con progreso, videollamadas uno a uno con invitación y aceptación, reconexión WebSocket y procesamiento de imágenes en paralelo.
 
 ## 2. Tecnologías y librerías
 
@@ -159,14 +159,14 @@ El límite es 12 mensajes por usuario cada 10 segundos. El texto y el tamaño m�
 
 Este paralelismo se usa en compresión y redimensionamiento, que consumen CPU. No se usa para repartir las operaciones normales de WebSocket o el acceso asíncrono al disco. `worker_threads` es una API nativa de Node.js; `sharp` es la librería que decodifica y codifica los formatos de imagen.
 
-### 5.5 Videollamadas grupales
+### 5.5 Videollamadas uno a uno
 
-#### 5.5.1 Crear y unirse a una llamada
+#### 5.5.1 Llamar, aceptar y rechazar
 
-1. El botón de llamada grupal emite `call:start`; el banner de llamada activa permite a las demás personas unirse ([`public/js/features/callFeature.js`, líneas 5–37 y 45–91](public/js/features/callFeature.js#L5)).
-2. `server/socket/callHandler.js` adapta los eventos entrantes al servicio de llamadas ([líneas 1–39](server/socket/callHandler.js#L1)).
-3. `server/services/callService.js` mantiene las salas y participantes en mapas en memoria, asigna el ID de llamada, anuncia disponibilidad, gestiona ingreso/salida y limpia la llamada cuando queda vacía ([líneas 8–127](server/services/callService.js#L8)).
-4. El servidor deriva la identidad del emisor a partir del WebSocket registrado. La señalización solo se entrega a participantes de la misma llamada.
+1. En la lista de personas, pulsa el icono de teléfono junto al usuario al que quieres llamar. Se emite `call:start` con su `toId`.
+2. El destinatario ve quién llama y puede pulsar **Aceptar** o **Rechazar**. Quien llama puede cancelar mientras espera.
+3. Al aceptar, el iniciador crea la oferta WebRTC; ambos pueden finalizar la llamada y regresar al chat.
+4. `server/socket/callHandler.js` adapta los eventos al servicio y `server/services/callService.js` reserva usuarios ocupados, valida la invitación, deriva el emisor de la sesión WebSocket y limpia el estado al rechazar, finalizar o desconectarse.
 
 #### 5.5.2 Intercambio de audio y video
 
@@ -201,7 +201,7 @@ Las rutas y líneas siguientes corresponden al código incluido en este reposito
 | [`server/socket/callHandler.js`](server/socket/callHandler.js#L14) | Traducción de eventos WebSocket de llamada a comandos del servicio. |
 | [`server/services/userService.js`](server/services/userService.js#L4) | Usuarios conectados e identidad por socket. |
 | [`server/services/chatService.js`](server/services/chatService.js#L4) | Historial y reglas de mensajes en memoria. |
-| [`server/services/callService.js`](server/services/callService.js#L8) | Estado de llamadas grupales, participantes y señalización privada. |
+| [`server/services/callService.js`](server/services/callService.js#L8) | Invitaciones, ocupación de usuarios, estado de llamadas uno a uno y señalización privada. |
 | [`server/services/uploadService.js`](server/services/uploadService.js#L5) | Validación, propiedad, límites y almacenamiento de adjuntos. |
 | [`server/services/imageProcessingService.js`](server/services/imageProcessingService.js#L8) | Pool acotado de workers, cola de procesamiento y cierre. |
 | [`server/workers/imageWorker.js`](server/workers/imageWorker.js#L1) | Compresión y redimensionamiento de imágenes mediante `sharp`. |
@@ -219,7 +219,7 @@ Las rutas y líneas siguientes corresponden al código incluido en este reposito
 | [`public/js/features/rosterFeature.js`](public/js/features/rosterFeature.js#L4) | Lista y estado de usuarios. |
 | [`public/js/features/presenceFeature.js`](public/js/features/presenceFeature.js#L4) | Estado de transporte y presencia. |
 | [`public/js/features/chatFeature.js`](public/js/features/chatFeature.js#L4) | Chat, acciones de mensajes, adjuntos, búsqueda e indicador de escritura. |
-| [`public/js/features/callFeature.js`](public/js/features/callFeature.js#L5) | UI y coordinación de llamada grupal. |
+| [`public/js/features/callFeature.js`](public/js/features/callFeature.js#L5) | UI y coordinación de invitaciones y llamadas uno a uno. |
 | [`public/js/webrtc.js`](public/js/webrtc.js#L1) | `getUserMedia`, `RTCPeerConnection`, ICE y limpieza de medios. |
 | [`public/js/ui.js`](public/js/ui.js#L31) | Funciones de presentación DOM compartidas. |
 | [`public/css/style.css`](public/css/style.css) | Estilos de toda la interfaz. |
@@ -252,7 +252,7 @@ Las rutas y líneas siguientes corresponden al código incluido en este reposito
 | `message:new`, `message:edit`, `message:delete` | Ambos sentidos | Crear, editar y eliminar mensajes. |
 | `reaction:toggle`, `message:pin` | Ambos sentidos | Cambiar reacción o fijado compartido. |
 | `typing:start`, `typing:stop` | Ambos sentidos | Mostrar quién está escribiendo. |
-| `call:start`, `call:join`, `call:end` | Cliente → servidor | Iniciar, unirse o salir de una llamada grupal. |
+| `call:start`, `call:accept`, `call:reject`, `call:end` | Cliente → servidor | Invitar a un usuario conectado, aceptar/rechazar o finalizar una llamada uno a uno. |
 | `webrtc:offer`, `webrtc:answer`, `webrtc:ice-candidate` | Cliente ↔ servidor ↔ participante | Señalización privada para establecer cada conexión WebRTC. |
 | `error` | Servidor → cliente | Informar errores de protocolo o de operación. |
 
@@ -271,7 +271,7 @@ Para revisar la aplicación manualmente:
 1. Inicia el servidor y abre `http://localhost:3000` en dos navegadores.
 2. Ingresa con nombres diferentes y comprueba presencia, mensajes, reacciones, respuestas y fijado.
 3. Adjunta imágenes JPEG, PNG, GIF y WebP; confirma que el modal se muestra antes del selector, se ve el progreso y las imágenes se publican.
-4. Inicia una llamada grupal, únete desde el otro navegador y comprueba audio, video, controles y salida.
+4. Inicia sesión con dos usuarios en navegadores distintos; pulsa el teléfono junto al nombre del otro usuario, acepta la invitación y comprueba audio, video, controles y salida. Repite y rechaza la invitación.
 5. En una red con HTTPS, repite la llamada entre dispositivos. `getUserMedia` puede bloquearse en orígenes HTTP que no sean `localhost`.
 6. Para revisar el worker, sube una imagen JPEG/PNG/WebP grande y observa que la carga se completa y que el tamaño informado corresponde al resultado guardado. GIF debe conservar su animación.
 
@@ -300,7 +300,7 @@ Se puede montar un volumen Docker para persistir los binarios, por ejemplo `chat
 2. Los binarios sí se escriben en disco; la ruta se configura con `UPLOAD_DIR`.
 3. El tamaño máximo es 5 MB por imagen y se permiten hasta cinco imágenes por mensaje.
 4. El pool de imágenes usa como máximo dos workers y mantiene hasta 20 trabajos pendientes. Los GIF se dejan intactos; JPEG, PNG y WebP se redimensionan a un máximo de 1920 píxeles y se recomprimen cuando el resultado es menor.
-5. WebRTC conecta cada pareja de participantes de la llamada. El servidor solo coordina salas y retransmite señalización; no actúa como SFU ni retransmite audio/video.
+5. WebRTC conecta a los dos participantes. El servidor retransmite la señalización privada; no actúa como SFU ni retransmite audio/video.
 6. STUN público no sustituye un servidor TURN para redes que bloquean conexiones directas.
 7. Lucide se descarga desde un CDN, por lo que los iconos dependen de que ese recurso esté accesible.
 

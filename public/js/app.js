@@ -12,7 +12,7 @@ const state = { identity: null, userId: null, users: [] };
 window.lucide?.createIcons();
 
 const calls = new CallFeature(socket);
-const roster = new RosterFeature(socket, state);
+const roster = new RosterFeature(socket, state, calls);
 const chat = new ChatFeature(socket, state);
 new PresenceFeature(socket, state, chat, roster);
 new SessionFeature(socket, state, { chat, call: calls, roster });

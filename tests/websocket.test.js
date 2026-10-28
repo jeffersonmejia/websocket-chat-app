@@ -123,7 +123,7 @@ test('chat WebSocket: broadcast, users, permisos, retos, errores y recuperación
   assert.equal(replay.user.name, 'Beto');
 });
 
-test('llamada de sala: todos reciben opción para unirse, señalización privada y cierre', async (t) => {
+test('llamada uno a uno: invitación, aceptación, señalización privada y cierre', async (t) => {
   const { httpServer, wsServer } = createChatServer();
   await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
   const wsUrl = `ws://127.0.0.1:${httpServer.address().port}/ws`;
@@ -136,35 +136,29 @@ test('llamada de sala: todos reciben opción para unirse, señalización privada
   const alice = await makeClient(wsUrl, 'Alice', 'caller-test-0001'); clients.push(alice.ws);
   const bob = await makeClient(wsUrl, 'Bob', 'callee-test-0002'); clients.push(bob.ws);
   const cara = await makeClient(wsUrl, 'Cara', 'observer-test-003'); clients.push(cara.ws);
-  await waitFor(cara.ws, (frame) => frame.type === 'call:available' && frame.payload.callId === null);
+  const outgoing = waitFor(alice.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'outgoing');
+  const invitation = waitFor(bob.ws, (frame) => frame.type === 'call:incoming');
+  send(alice.ws, 'call:start', { toId: bob.user.id });
+  const callId = (await outgoing).payload.callId;
+  assert.equal((await invitation).payload.caller.id, alice.user.id);
+  assert.equal(cara.ws.frames.some((frame) => frame.type.startsWith('call:')), false);
 
   const aliceConnecting = waitFor(alice.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'connecting');
-  const availableAtBob = waitFor(bob.ws, (frame) => frame.type === 'call:available' && frame.payload.callId);
-  const availableAtCara = waitFor(cara.ws, (frame) => frame.type === 'call:available' && frame.payload.callId);
-  send(alice.ws, 'call:start');
-  const callId = (await aliceConnecting).payload.callId;
-  for (const frame of await Promise.all([availableAtBob, availableAtCara])) {
-    assert.equal(frame.payload.callId, callId);
-    assert.deepEqual(frame.payload.participants, [{ id: alice.user.id, name: 'Alice' }]);
-  }
-
-  const aliceSeesBob = waitFor(alice.ws, (frame) => frame.type === 'call:participant-joined' && frame.payload.peer.id === bob.user.id);
   const bobConnecting = waitFor(bob.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'connecting');
-  send(bob.ws, 'call:join', { callId });
-  await Promise.all([aliceSeesBob, bobConnecting]);
+  send(bob.ws, 'call:accept', { callId });
+  const [aliceCall, bobCall] = await Promise.all([aliceConnecting, bobConnecting]);
+  assert.deepEqual(aliceCall.payload.offerPeerIds, [bob.user.id]);
+  assert.deepEqual(bobCall.payload.offerPeerIds, []);
 
   const offerDelivery = waitFor(bob.ws, (frame) => frame.type === 'webrtc:offer');
   send(alice.ws, 'webrtc:offer', { callId, description: { type: 'offer', sdp: 'test-sdp' } });
-  assert.deepEqual((await offerDelivery).payload, { callId, description: { type: 'offer', sdp: 'test-sdp' } });
+  assert.deepEqual((await offerDelivery).payload, { callId, fromId: alice.user.id, description: { type: 'offer', sdp: 'test-sdp' } });
   assert.equal(cara.ws.frames.some((frame) => frame.type === 'webrtc:offer'), false);
 
+  const endedAtAlice = waitFor(alice.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'ended');
   const endedAtBob = waitFor(bob.ws, (frame) => frame.type === 'call:state' && frame.payload.state === 'ended');
-  const bobLeftAtAlice = waitFor(alice.ws, (frame) => frame.type === 'call:participant-left' && frame.payload.peerId === bob.user.id);
-  send(bob.ws, 'call:end', { callId });
-  await Promise.all([endedAtBob, bobLeftAtAlice]);
-  const callEndedForCara = waitFor(cara.ws, (frame) => frame.type === 'call:available' && frame.payload.callId === null);
   send(alice.ws, 'call:end', { callId });
-  await callEndedForCara;
+  assert.match((await Promise.all([endedAtAlice, endedAtBob]))[1].payload.message, /finaliz/i);
 });
 
 test('chat limita ráfagas de mensajes por usuario', async (t) => {

@@ -2,9 +2,10 @@ import { element, setUsers, toast } from '../ui.js';
 
 /** Owns the connected-user roster and its server events. */
 export class RosterFeature {
-  constructor(socket, state) {
+  constructor(socket, state, calls) {
     this.socket = socket;
     this.state = state;
+    this.calls = calls;
     socket.addEventListener('event', this.handleFrame);
   }
   handleFrame = ({ detail: frame }) => {
@@ -33,7 +34,7 @@ export class RosterFeature {
     clearTimeout(this.skeletonTimer);
     this.skeletonTimer = setTimeout(() => { skeleton.hidden = true; }, remaining);
   }
-  render() { setUsers(this.state.users, this.state.userId); }
+  render() { setUsers(this.state.users, this.state.userId, (user) => this.calls.callUser(user), this.calls.isBusy()); }
   reset() { clearTimeout(this.skeletonTimer); this.state.users = []; this.render(); }
   destroy() { this.socket.removeEventListener('event', this.handleFrame); }
 }

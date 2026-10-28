@@ -27,10 +27,6 @@ export function attachConnectionHandlers(server, users, chat, uploads) {
           if (prior && prior.ws !== ws) calls.disconnected(prior.id);
         }
         const handled = handleUserEvent({ ws, ...frame, users, chat, broadcast, send });
-        if (handled && frame.type === EVENTS.JOIN) {
-          const user = users.getBySocket(ws);
-          if (user) calls.announceAvailability(user);
-        }
         if (!handled && !calls.handle({ ws, ...frame })) handleMessageEvent({ ws, ...frame, users, chat, uploads, broadcast, send, typing, messageRateLimiter });
       } catch (error) {
         send(ws, EVENTS.ERROR, { message: error.message, requestId: frame.requestId });

@@ -3,7 +3,8 @@ import { createCallService } from '../services/callService.js';
 
 const CALL_EVENTS = new Set([
   EVENTS.CALL_END,
-  EVENTS.CALL_JOIN,
+  EVENTS.CALL_ACCEPT,
+  EVENTS.CALL_REJECT,
   EVENTS.WEBRTC_OFFER,
   EVENTS.WEBRTC_ANSWER,
   EVENTS.WEBRTC_ICE,
@@ -19,11 +20,15 @@ export function createCallHandler({ users, send }) {
     if (!user) throw new Error('Ingresa al chat antes de iniciar una llamada.');
 
     if (type === EVENTS.CALL_START) {
-      callService.start(user);
+      callService.start(user, payload.toId);
       return true;
     }
-    if (type === EVENTS.CALL_JOIN) {
-      callService.join(user, payload.callId);
+    if (type === EVENTS.CALL_ACCEPT) {
+      callService.accept(user, payload.callId);
+      return true;
+    }
+    if (type === EVENTS.CALL_REJECT) {
+      callService.reject(user, payload.callId);
       return true;
     }
     if (!CALL_EVENTS.has(type)) return false;
@@ -35,7 +40,6 @@ export function createCallHandler({ users, send }) {
 
   return {
     handle,
-    announceAvailability: callService.announceAvailability,
     disconnected: callService.disconnected,
     close: callService.close,
   };
