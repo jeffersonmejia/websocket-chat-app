@@ -35,18 +35,36 @@ export class VideoCall extends EventTarget {
   }
 
   async initialize(callId, peerIds, offerPeerIds, generation) {
-    let stream = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch (error) {
-      if (generation !== this.generation) return;
-      this.dispatchEvent(new CustomEvent('media-unavailable', { detail: { message: this.mediaErrorMessage(error) } }));
-    }
+    const { stream, unavailable } = await this.getLocalMedia();
     if (generation !== this.generation) { stopStream(stream); return; }
     this.stream = stream;
+    if (unavailable.length) this.dispatchEvent(new CustomEvent('media-unavailable', {
+      detail: {
+        audioAvailable: Boolean(stream?.getAudioTracks().length),
+        videoAvailable: Boolean(stream?.getVideoTracks().length),
+        message: unavailable.join(' '),
+      },
+    }));
     if (stream) this.dispatchEvent(new CustomEvent('local-stream', { detail: stream }));
     for (const peerId of peerIds) await this.addPeer(peerId, offerPeerIds.includes(peerId));
     await this.flushPendingSignals();
+  }
+
+  async getLocalMedia() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return { stream: null, unavailable: ['Este navegador no permite acceder a cámara o micrófono.'] };
+    }
+    const [audio, video] = await Promise.allSettled([
+      navigator.mediaDevices.getUserMedia({ audio: true }),
+      navigator.mediaDevices.getUserMedia({ video: true }),
+    ]);
+    const stream = new MediaStream();
+    const unavailable = [];
+    if (audio.status === 'fulfilled') audio.value.getAudioTracks().forEach((track) => stream.addTrack(track));
+    else unavailable.push(`Micrófono: ${this.mediaErrorMessage(audio.reason)}`);
+    if (video.status === 'fulfilled') video.value.getVideoTracks().forEach((track) => stream.addTrack(track));
+    else unavailable.push(`Cámara: ${this.mediaErrorMessage(video.reason)}`);
+    return { stream: stream.getTracks().length ? stream : null, unavailable };
   }
 
   async addPeer(peerId, shouldOffer = false) {
@@ -55,10 +73,10 @@ export class VideoCall extends EventTarget {
     const remoteStream = new MediaStream();
     const entry = { peer, remoteStream, queuedIce: [] };
     this.peers.set(peerId, entry);
-    if (this.stream) this.stream.getTracks().forEach((track) => peer.addTrack(track, this.stream));
-    else {
-      peer.addTransceiver('audio', { direction: 'recvonly' });
-      peer.addTransceiver('video', { direction: 'recvonly' });
+    const localKinds = new Set(this.stream?.getTracks().map((track) => track.kind));
+    this.stream?.getTracks().forEach((track) => peer.addTrack(track, this.stream));
+    for (const kind of ['audio', 'video']) {
+      if (!localKinds.has(kind)) peer.addTransceiver(kind, { direction: 'recvonly' });
     }
     peer.ontrack = ({ streams, track }) => {
       if (streams[0]) entry.remoteStream = streams[0];
@@ -142,11 +160,11 @@ export class VideoCall extends EventTarget {
     this.cleanup();
   }
   mediaErrorMessage(error) {
-    if (error.name === 'NotAllowedError') return 'No se pudo usar tu cámara o micrófono. Verifica los permisos del navegador.';
-    if (error.name === 'NotFoundError') return 'No se encontró cámara o micrófono en este dispositivo.';
-    if (error.name === 'NotReadableError') return 'La cámara o el micrófono están en uso por otra aplicación.';
-    if (error.name === 'SecurityError') return 'La cámara y el micrófono requieren HTTPS o localhost.';
-    return `No se pudo iniciar tu cámara o micrófono: ${error.message}`;
+    if (error.name === 'NotAllowedError') return 'permiso denegado en el navegador.';
+    if (error.name === 'NotFoundError') return 'no hay dispositivo disponible.';
+    if (error.name === 'NotReadableError') return 'está en uso por otra aplicación o navegador.';
+    if (error.name === 'SecurityError') return 'requiere HTTPS o localhost.';
+    return error.message || 'no se pudo iniciar.';
   }
   cleanup() {
     this.generation += 1;
