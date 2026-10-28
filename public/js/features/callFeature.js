@@ -137,8 +137,6 @@ export class CallFeature {
     if (state === 'connected') this.startDuration();
     if (state === 'failed') {
       toast(message);
-      if (this.activeCallId) this.socket.send('call:end', { callId: this.activeCallId });
-      this.media.cleanup();
     }
   }
   toggleMedia(kind) {
