@@ -35,21 +35,31 @@ export class VideoCall extends EventTarget {
   }
 
   async initialize(callId, peerIds, offerPeerIds, generation) {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (error) {
+      if (generation !== this.generation) return;
+      this.dispatchEvent(new CustomEvent('media-unavailable', { detail: { message: this.mediaErrorMessage(error) } }));
+    }
     if (generation !== this.generation) { stopStream(stream); return; }
     this.stream = stream;
-    this.dispatchEvent(new CustomEvent('local-stream', { detail: stream }));
+    if (stream) this.dispatchEvent(new CustomEvent('local-stream', { detail: stream }));
     for (const peerId of peerIds) await this.addPeer(peerId, offerPeerIds.includes(peerId));
     await this.flushPendingSignals();
   }
 
   async addPeer(peerId, shouldOffer = false) {
-    if (!peerId || this.peers.has(peerId) || !this.stream) return;
+    if (!peerId || this.peers.has(peerId)) return;
     const peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const remoteStream = new MediaStream();
     const entry = { peer, remoteStream, queuedIce: [] };
     this.peers.set(peerId, entry);
-    this.stream.getTracks().forEach((track) => peer.addTrack(track, this.stream));
+    if (this.stream) this.stream.getTracks().forEach((track) => peer.addTrack(track, this.stream));
+    else {
+      peer.addTransceiver('audio', { direction: 'recvonly' });
+      peer.addTransceiver('video', { direction: 'recvonly' });
+    }
     peer.ontrack = ({ streams, track }) => {
       if (streams[0]) entry.remoteStream = streams[0];
       else entry.remoteStream.addTrack(track);
@@ -79,7 +89,7 @@ export class VideoCall extends EventTarget {
   async receiveIce(peerId, candidate) { await this.receiveSignal({ type: 'ice', peerId, value: candidate }); }
   async receiveSignal(signal) {
     if (!this.callId) return;
-    if (!this.stream || !this.peers.has(signal.peerId)) { this.pendingSignals.push(signal); return; }
+    if (!this.peers.has(signal.peerId)) { this.pendingSignals.push(signal); return; }
     await this.applySignal(signal);
   }
   async applySignal(signal) {
@@ -130,6 +140,13 @@ export class VideoCall extends EventTarget {
     this.emit('failed', message);
     if (this.callId) this.socket.send('call:end', { callId: this.callId });
     this.cleanup();
+  }
+  mediaErrorMessage(error) {
+    if (error.name === 'NotAllowedError') return 'No se pudo usar tu cámara o micrófono. Verifica los permisos del navegador.';
+    if (error.name === 'NotFoundError') return 'No se encontró cámara o micrófono en este dispositivo.';
+    if (error.name === 'NotReadableError') return 'La cámara o el micrófono están en uso por otra aplicación.';
+    if (error.name === 'SecurityError') return 'La cámara y el micrófono requieren HTTPS o localhost.';
+    return `No se pudo iniciar tu cámara o micrófono: ${error.message}`;
   }
   cleanup() {
     this.generation += 1;

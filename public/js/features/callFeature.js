@@ -56,6 +56,13 @@ export class CallFeature {
       this.syncMediaControls(detail);
       element('#call-skeleton').hidden = true;
     });
+    this.media.addEventListener('media-unavailable', ({ detail }) => {
+      element('#call-skeleton').hidden = true;
+      element('#local-video').closest('.video-tile').classList.add('camera-disabled');
+      this.setLocalCameraPlaceholder('Cámara o micrófono no disponibles', 'video-off');
+      element('#webrtc-status').textContent = 'Conectando sin medios locales…';
+      toast(`${detail.message} Puedes recibir la transmisión de la otra persona.`);
+    });
     this.media.addEventListener('remote-stream', ({ detail }) => this.attachRemoteStream(detail.peerId, detail.stream));
     this.media.addEventListener('remote-left', ({ detail }) => this.removeRemoteTile(detail.peerId));
     this.media.addEventListener('peer-failed', ({ detail }) => {
