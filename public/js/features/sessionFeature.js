@@ -11,13 +11,15 @@ export class SessionFeature {
     this.storeKey = 'chatea-identity';
     element('#login-form').addEventListener('submit', this.handleLogin);
     element('#leave-button').addEventListener('click', this.leave);
+    this.socket.addEventListener('event', this.handleSocketEvent);
     window.addEventListener('pagehide', this.handlePageHide);
     this.restore();
   }
   handleLogin = (event) => {
     event.preventDefault();
-    const name = element('#name-input').value.trim();
+    const name = element('#name-input').value.trim().replace(/\s+/g, ' ');
     if (!name || name.length > 24) { showLogin('Escribe un nombre de entre 1 y 24 caracteres.'); return; }
+    if (!/^\p{L}+(?: \p{L}+)*$/u.test(name)) { showLogin('Usa solo letras y espacios, sin números ni símbolos.'); return; }
     this.connect(name);
   };
   connect(name, id = crypto.randomUUID()) {
@@ -41,6 +43,13 @@ export class SessionFeature {
     showLogin();
   };
   handlePageHide = () => this.chat.stopTyping();
+  handleSocketEvent = ({ detail: frame }) => {
+    if (frame.type !== 'error' || this.state.userId) return;
+    this.socket.close();
+    sessionStorage.removeItem(this.storeKey);
+    this.state.identity = null;
+    showLogin(frame.payload?.message || 'No se pudo ingresar al chat.');
+  };
   restore() {
     try {
       const saved = JSON.parse(sessionStorage.getItem(this.storeKey));
@@ -55,6 +64,7 @@ export class SessionFeature {
   destroy() {
     element('#login-form').removeEventListener('submit', this.handleLogin);
     element('#leave-button').removeEventListener('click', this.leave);
+    this.socket.removeEventListener('event', this.handleSocketEvent);
     window.removeEventListener('pagehide', this.handlePageHide);
   }
 }

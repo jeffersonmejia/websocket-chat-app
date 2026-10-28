@@ -7,9 +7,16 @@ export class UserService {
   #users = new Map();
 
   join(ws, requestedId, requestedName) {
-    const name = cleanText(requestedName, MAX_NAME_LENGTH, 'Nombre');
+    const name = cleanText(requestedName, MAX_NAME_LENGTH, 'Nombre').replace(/\s+/g, ' ');
+    if (!/^\p{L}+(?: \p{L}+)*$/u.test(name)) {
+      throw new Error('El nombre solo puede contener letras y espacios; no uses números ni símbolos.');
+    }
     const id = typeof requestedId === 'string' && /^[\w-]{8,80}$/.test(requestedId) ? requestedId : randomUUID();
     const prior = this.#users.get(id);
+    const normalizedName = name.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('es');
+    const duplicate = [...this.#users.values()].some((user) => user.id !== id
+      && user.name.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('es') === normalizedName);
+    if (duplicate) throw new Error('Ese nombre ya está en uso. Elige otro.');
     if (!prior && this.#users.size >= MAX_ROOM_PARTICIPANTS) throw new Error('La sala alcanzó el límite de 50 participantes.');
     if (prior?.ws && prior.ws !== ws) prior.ws.close(4001, 'Sesión reanudada en otra pestaña');
     const user = { id, name, ws, presence: prior?.presence ?? 'online', joinedAt: prior?.joinedAt ?? new Date().toISOString() };
